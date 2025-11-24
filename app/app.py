@@ -1,6 +1,7 @@
 import reflex as rx
 from app.components.timeline_card import timeline_card
 from app.components.timeline_create import timeline_create
+from app.components.global_controls import global_controls
 from app.states.timeline_state import TimelineState
 
 
@@ -18,6 +19,7 @@ def index() -> rx.Component:
                 ),
                 class_name="mb-8 text-center",
             ),
+            rx.el.div(global_controls(), class_name="w-full px-4 mb-2"),
             rx.el.div(timeline_create(), class_name="w-full px-4 mb-6"),
             rx.el.div(
                 rx.foreach(

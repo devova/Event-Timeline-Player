@@ -70,8 +70,19 @@ class TimelineState(rx.State):
     ]
     new_timeline_name: str = ""
     new_timeline_type: str = "proposal_fkey"
+    global_current_time: float = 0.0
+    global_is_playing: bool = False
+    global_max_duration: float = 120.0
 
-    def _trigger_event_action(self, timeline_idx: int, event: TimelineEvent):
+    @rx.var
+    def formatted_global_time(self) -> str:
+        return self._format_time(self.global_current_time)
+
+    @rx.var
+    def formatted_global_duration(self) -> str:
+        return self._format_time(self.global_max_duration)
+
+    def _trigger_event_action(self, timeline: TimelineItem, event: TimelineEvent):
         """Executes backend action based on event type."""
         action_msg = ""
         if event["type"] == "conflict":
@@ -82,8 +93,8 @@ class TimelineState(rx.State):
             logging.info(f"[Backend] {action_msg}")
         else:
             action_msg = f"EVENT TRIGGERED: Processing generic event {event['id']}"
-        timestamp = self._format_time(self.timelines[timeline_idx]["current_time"])
-        self.timelines[timeline_idx]["logs"].insert(
+        timestamp = self._format_time(timeline["current_time"])
+        timeline["logs"].insert(
             0,
             {
                 "timestamp": timestamp,
@@ -97,15 +108,28 @@ class TimelineState(rx.State):
         secs = int(seconds % 60)
         return f"{minutes:02d}:{secs:02d}"
 
-    def _update_timeline_display(self, index: int):
+    def _update_timeline_display_data(self, timeline: TimelineItem):
         """Updates computed display fields for a timeline."""
-        timeline = self.timelines[index]
         timeline["formatted_current_time"] = self._format_time(timeline["current_time"])
         timeline["progress_percent"] = (
             timeline["current_time"] / timeline["duration"] * 100
             if timeline["duration"] > 0
             else 0
         )
+
+    def _sync_all_timelines(self):
+        """Syncs all timelines to global time and checks triggers."""
+        for timeline in self.timelines:
+            timeline["current_time"] = min(
+                self.global_current_time, timeline["duration"]
+            )
+            self._update_timeline_display_data(timeline)
+
+    def _calculate_max_duration(self):
+        if not self.timelines:
+            self.global_max_duration = 120.0
+        else:
+            self.global_max_duration = max((t["duration"] for t in self.timelines))
 
     @rx.event
     def add_timeline(self):
@@ -142,75 +166,74 @@ class TimelineState(rx.State):
         }
         self.timelines.append(new_item)
         self.new_timeline_name = ""
+        self._calculate_max_duration()
 
     @rx.event
     def delete_timeline(self, timeline_id: str):
         self.timelines = [t for t in self.timelines if t["id"] != timeline_id]
+        self._calculate_max_duration()
+        if self.global_current_time > self.global_max_duration:
+            self.global_current_time = self.global_max_duration
+            self._sync_all_timelines()
 
     @rx.event
-    def toggle_play(self, timeline_id: str):
-        for i, t in enumerate(self.timelines):
-            if t["id"] == timeline_id:
-                t["is_playing"] = not t["is_playing"]
-                self.timelines[i] = t
-                if t["is_playing"]:
-                    return TimelineState.tick(timeline_id)
-                break
+    def global_toggle_play(self):
+        self.global_is_playing = not self.global_is_playing
+        if self.global_is_playing:
+            if self.global_current_time >= self.global_max_duration:
+                self.global_current_time = 0.0
+                self.global_stop()
+                self.global_is_playing = True
+            return TimelineState.tick
 
     @rx.event
-    def stop(self, timeline_id: str):
-        for i, t in enumerate(self.timelines):
-            if t["id"] == timeline_id:
-                t["is_playing"] = False
-                t["current_time"] = 0.0
-                for event in t["events"]:
-                    event["status"] = "pending"
-                t["logs"] = []
-                self._update_timeline_display(i)
-                self.timelines[i] = t
-                break
+    def global_stop(self):
+        self.global_is_playing = False
+        self.global_current_time = 0.0
+        for timeline in self.timelines:
+            timeline["current_time"] = 0.0
+            timeline["logs"] = []
+            for event in timeline["events"]:
+                event["status"] = "pending"
+            self._update_timeline_display_data(timeline)
+        self.timelines = self.timelines
 
     @rx.event
-    def seek(self, timeline_id: str, value: str):
+    def global_seek(self, value: str):
         try:
             new_time = float(value)
-            for i, t in enumerate(self.timelines):
-                if t["id"] == timeline_id:
-                    t["current_time"] = new_time
-                    self._update_timeline_display(i)
-                    self.timelines[i] = t
-                    break
+            self.global_current_time = new_time
+            self._sync_all_timelines()
         except ValueError as e:
-            logging.exception(f"Error: {e}")
+            logging.exception(f"Error seeking: {e}")
 
     @rx.event
-    async def tick(self, timeline_id: str):
-        """Updates a specific timeline."""
-        idx = -1
-        for i, t in enumerate(self.timelines):
-            if t["id"] == timeline_id:
-                idx = i
-                break
-        if idx == -1:
-            return
-        timeline = self.timelines[idx]
-        if timeline["is_playing"] and timeline["current_time"] < timeline["duration"]:
+    async def tick(self):
+        """Global tick function to update all timelines."""
+        if (
+            self.global_is_playing
+            and self.global_current_time < self.global_max_duration
+        ):
             await asyncio.sleep(0.1)
-            timeline["current_time"] += 0.5
-            current_t = timeline["current_time"]
-            events_updated = False
-            for event in timeline["events"]:
-                if event["status"] == "pending" and event["time"] <= current_t:
-                    event["status"] = "triggered"
-                    self._trigger_event_action(idx, event)
-                    events_updated = True
-            if timeline["current_time"] >= timeline["duration"]:
-                timeline["current_time"] = timeline["duration"]
-                timeline["is_playing"] = False
-            self._update_timeline_display(idx)
-            if events_updated:
-                self.timelines[idx] = timeline
+            self.global_current_time += 0.5
+            if self.global_current_time > self.global_max_duration:
+                self.global_current_time = self.global_max_duration
+            new_timelines = []
+            for timeline in self.timelines:
+                timeline["current_time"] = min(
+                    self.global_current_time, timeline["duration"]
+                )
+                for event in timeline["events"]:
+                    if (
+                        event["status"] == "pending"
+                        and event["time"] <= timeline["current_time"]
+                    ):
+                        event["status"] = "triggered"
+                        self._trigger_event_action(timeline, event)
+                self._update_timeline_display_data(timeline)
+                new_timelines.append(timeline)
+            self.timelines = new_timelines
+            if self.global_current_time >= self.global_max_duration:
+                self.global_is_playing = False
             else:
-                self.timelines[idx] = timeline
-            if timeline["is_playing"]:
-                yield TimelineState.tick(timeline_id)
+                yield TimelineState.tick

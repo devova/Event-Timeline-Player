@@ -26,3 +26,17 @@
 - [x] Verify playback controls work correctly (play, pause, stop, seek)
 - [x] Validate event triggering and visualization during playback
 - [x] Check event details panel displays triggered events correctly
+
+## Phase 5: Common Player Controls ✅
+- [x] Remove individual timeline controls from each timeline card
+- [x] Create global player controls component that affects all timelines simultaneously
+- [x] Update state management to handle global play/pause/stop/seek operations
+- [x] Synchronize all timelines to the same playback position
+- [x] Add global time display showing current position across all timelines
+- [x] Ensure all events trigger correctly across all timelines during global playback
+
+## Phase 6: Final UI Verification ✅
+- [x] Verify global controls appear at the top with proper styling
+- [x] Test that all timelines stack vertically and sync during playback
+- [x] Validate global seek slider affects all timelines
+- [x] Check that creating new timelines works with global controls

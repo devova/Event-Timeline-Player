@@ -1,6 +1,5 @@
 import reflex as rx
 from app.components.timeline_vis import timeline_vis
-from app.components.timeline_controls import timeline_controls
 from app.components.event_details import event_details
 from app.states.timeline_state import TimelineItem, TimelineState
 
@@ -38,7 +37,6 @@ def timeline_card(timeline: TimelineItem) -> rx.Component:
             class_name="flex items-center justify-between mb-6",
         ),
         rx.el.div(timeline_vis(timeline), class_name="px-2 mb-8"),
-        timeline_controls(timeline),
         event_details(timeline),
         class_name="bg-white rounded-2xl p-6 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.24)] hover:shadow-[0_8px_16px_rgba(0,0,0,0.12),0_8px_8px_rgba(0,0,0,0.12)] transition-all duration-300 ease-in-out w-full max-w-4xl mx-auto",
     )
